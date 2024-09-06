@@ -39,7 +39,7 @@ struct Args {
     #[arg(short, long)]
     config: PathBuf,
     /// Location of certs file, will override config file
-    #[arg(short, long, env)]
+    #[arg(short = 'e', long, env)]
     certs_file: Option<PathBuf>,
     /// Location of config file
     #[arg(short, long, env)]
