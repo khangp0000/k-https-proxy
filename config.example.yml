@@ -1,0 +1,5 @@
+certs_file: "/etc/letsencrypt/live/proxy.piratorr.com/fullchain.pem"
+private_key_file: "/etc/letsencrypt/live/proxy.piratorr.com/privkey.pem"
+addr: "[::]:3868"
+username: "username"
+password: "password"

@@ -4,6 +4,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use rustls_pemfile::{certs, private_key};
+use serde::Deserialize;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, ErrorKind};
@@ -34,20 +35,23 @@ fn load_key(path: &Path) -> io::Result<PrivateKeyDer<'static>> {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Location of certificate
+    /// Location of config file
+    #[arg(short, long)]
+    config: PathBuf,
+    /// Location of certs file, will override config file
     #[arg(short, long, env)]
-    certs_file: PathBuf,
-    /// Location of private key
+    certs_file: Option<PathBuf>,
+    /// Location of config file
     #[arg(short, long, env)]
-    private_key_file: PathBuf,
-    /// Address to bind to
-    #[arg(env)]
+    private_key_file: Option<PathBuf>,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    certs_file: Option<PathBuf>,
+    private_key_file: Option<PathBuf>,
     addr: Arc<str>,
-    /// username to authenticate proxy request
-    #[arg(short, long, env)]
     username: Arc<str>,
-    /// password to authenticate proxy request
-    #[arg(short = 's', long, env)]
     password: Arc<str>,
 }
 
@@ -58,23 +62,36 @@ async fn main() -> Result<(), io::Error> {
 
     let args = Args::parse();
 
-    let certs = load_certs(&args.certs_file).expect("Failed to load certificate");
-    let key = load_key(&args.private_key_file).expect("Failed to load private key");
+    let config_file = File::open(&args.config)
+        .expect(format!("Failed to read config file {:?}", &args.config).as_str());
+    let config = serde_yml::from_reader::<_, Config>(config_file)
+        .expect(format!("Failed to read config file {:?}", &args.config).as_str());
 
-    let config = rustls::ServerConfig::builder()
+    let cert_files = args
+        .certs_file
+        .or(config.certs_file)
+        .expect("Certs file need to be either in config file, as argument or environment variable");
+    let private_key_file = args.private_key_file.or(config.private_key_file).expect(
+        "Private key file need to be either in config file, as argument or environment variable",
+    );
+
+    let certs = load_certs(&cert_files).expect("Failed to load certificate");
+    let key = load_key(&private_key_file).expect("Failed to load private key");
+
+    let server_config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|err| io::Error::new(ErrorKind::InvalidInput, err))?;
 
-    let acceptor = TlsAcceptor::from(Arc::new(config));
-    let listener = TcpListener::bind(args.addr.deref()).await?;
+    let acceptor = TlsAcceptor::from(Arc::new(server_config));
+    let listener = TcpListener::bind(config.addr.deref()).await?;
 
     let cred = Arc::new(Credentials::new(
-        args.username.deref(),
-        args.password.deref(),
+        config.username.deref(),
+        config.password.deref(),
     ));
 
-    info!("Listening on {}", args.addr);
+    info!("Listening on {}", config.addr);
 
     loop {
         match listener.accept().await {
@@ -106,7 +123,7 @@ async fn main() -> Result<(), io::Error> {
                 }
             }
             Err(e) => {
-                error!("Tls connection fail for {}: {}", args.addr, e)
+                error!("Tls connection fail for {}: {}", config.addr, e)
             }
         }
     }
