@@ -39,7 +39,7 @@ pub async fn proxy(
         });
 
     if let Err(err) = auth_result {
-        warn!("Unauthorized access: {}", err);
+        warn!("Unauthorized access from {}: {}", client_addr.ip().to_canonical().to_string(),err);
         let mut resp = Response::new(Either::Left(empty()));
         *resp.status_mut() = http::StatusCode::UNAUTHORIZED;
         return Ok(resp);
